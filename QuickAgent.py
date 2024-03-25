@@ -2,6 +2,7 @@ import asyncio
 from dotenv import load_dotenv
 import shutil
 import subprocess
+import random
 import requests
 import time
 import os
@@ -28,28 +29,39 @@ from deepgram import (
 
 load_dotenv()
 
+
 class LanguageModelProcessor:
     def __init__(self):
-        self.llm = ChatGroq(temperature=0, model_name="mixtral-8x7b-32768", groq_api_key=os.getenv("GROQ_API_KEY"))
+        self.llm = ChatGroq(
+            temperature=0,
+            model_name="mixtral-8x7b-32768",
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+        )
         # self.llm = ChatOpenAI(temperature=0, model_name="gpt-4-0125-preview", openai_api_key=os.getenv("OPENAI_API_KEY"))
-        # self.llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo-0125", openai_api_key=os.getenv("OPENAI_API_KEY"))
+        # self.llm = ChatOpenAI(
+        #     temperature=0,
+        #     model_name="gpt-3.5-turbo-0125",
+        #     openai_api_key=os.getenv("OPENAI_API_KEY"),
+        # )
 
-        self.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        self.memory = ConversationBufferMemory(
+            memory_key="chat_history", return_messages=True
+        )
 
         # Load the system prompt from a file
-        with open('system_prompt.txt', 'r') as file:
+        with open("system_prompt.txt", "r") as file:
             system_prompt = file.read().strip()
-        
-        self.prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            HumanMessagePromptTemplate.from_template("{text}")
-        ])
+
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                HumanMessagePromptTemplate.from_template("{text}"),
+            ]
+        )
 
         self.conversation = LLMChain(
-            llm=self.llm,
-            prompt=self.prompt,
-            memory=self.memory
+            llm=self.llm, prompt=self.prompt, memory=self.memory
         )
 
     def process(self, text):
@@ -61,11 +73,14 @@ class LanguageModelProcessor:
         response = self.conversation.invoke({"text": text})
         end_time = time.time()
 
-        self.memory.chat_memory.add_ai_message(response['text'])  # Add AI response to memory
+        self.memory.chat_memory.add_ai_message(
+            response["text"]
+        )  # Add AI response to memory
 
         elapsed_time = int((end_time - start_time) * 1000)
         print(f"LLM ({elapsed_time}ms): {response['text']}")
-        return response['text']
+        return response["text"]
+
 
 class TextToSpeech:
     # Set your Deepgram API Key and desired voice model
@@ -84,11 +99,9 @@ class TextToSpeech:
         DEEPGRAM_URL = f"https://api.deepgram.com/v1/speak?model={self.MODEL_NAME}&performance=some&encoding=linear16&sample_rate=24000"
         headers = {
             "Authorization": f"Token {self.DG_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        payload = {
-            "text": text
-        }
+        payload = {"text": text}
 
         player_command = ["ffplay", "-autoexit", "-", "-nodisp"]
         player_process = subprocess.Popen(
@@ -101,12 +114,20 @@ class TextToSpeech:
         start_time = time.time()  # Record the time before sending the request
         first_byte_time = None  # Initialize a variable to store the time when the first byte is received
 
-        with requests.post(DEEPGRAM_URL, stream=True, headers=headers, json=payload) as r:
+        with requests.post(
+            DEEPGRAM_URL, stream=True, headers=headers, json=payload
+        ) as r:
             for chunk in r.iter_content(chunk_size=1024):
                 if chunk:
-                    if first_byte_time is None:  # Check if this is the first chunk received
-                        first_byte_time = time.time()  # Record the time when the first byte is received
-                        ttfb = int((first_byte_time - start_time)*1000)  # Calculate the time to first byte
+                    if (
+                        first_byte_time is None
+                    ):  # Check if this is the first chunk received
+                        first_byte_time = (
+                            time.time()
+                        )  # Record the time when the first byte is received
+                        ttfb = int(
+                            (first_byte_time - start_time) * 1000
+                        )  # Calculate the time to first byte
                         print(f"TTS Time to First Byte (TTFB): {ttfb}ms\n")
                     player_process.stdin.write(chunk)
                     player_process.stdin.flush()
@@ -114,6 +135,7 @@ class TextToSpeech:
         if player_process.stdin:
             player_process.stdin.close()
         player_process.wait()
+
 
 class TranscriptCollector:
     def __init__(self):
@@ -126,9 +148,11 @@ class TranscriptCollector:
         self.transcript_parts.append(part)
 
     def get_full_transcript(self):
-        return ' '.join(self.transcript_parts)
+        return " ".join(self.transcript_parts)
+
 
 transcript_collector = TranscriptCollector()
+
 
 async def get_transcript(callback):
     transcription_complete = asyncio.Event()  # Event to signal transcription completion
@@ -139,11 +163,11 @@ async def get_transcript(callback):
         deepgram: DeepgramClient = DeepgramClient("", config)
 
         dg_connection = deepgram.listen.asynclive.v("1")
-        print ("Listening...")
+        print("Listening...")
 
         async def on_message(self, result, **kwargs):
             sentence = result.channel.alternatives[0].transcript
-            
+
             if not result.speech_final:
                 transcript_collector.add_part(sentence)
             else:
@@ -173,6 +197,7 @@ async def get_transcript(callback):
 
         await dg_connection.start(options)
 
+        # TODO: Read DeepGram streaming guide
         # Open a microphone stream on the default input device
         microphone = Microphone(dg_connection.send)
         microphone.start()
@@ -189,30 +214,44 @@ async def get_transcript(callback):
         print(f"Could not open socket: {e}")
         return
 
+
+FILLER_WORDS = ["Well", "Okay", "I mean", "You know"]
+
+
 class ConversationManager:
     def __init__(self):
+        self.transcription_history = []
         self.transcription_response = ""
         self.llm = LanguageModelProcessor()
 
     async def main(self):
         def handle_full_sentence(full_sentence):
             self.transcription_response = full_sentence
+            self.transcription_history.append(full_sentence)
+
+        tts = TextToSpeech()
 
         # Loop indefinitely until "goodbye" is detected
         while True:
             await get_transcript(handle_full_sentence)
-            
+
+            # TODO: Consider adding transitionary filler speech here from TTS
+            if self.transcription_history:
+                tts.speak(random.choice(FILLER_WORDS))
+
             # Check for "goodbye" to exit the loop
             if "goodbye" in self.transcription_response.lower():
+                # TODO: Add "Goodbye!" response back from TTS
+                tts.speak("Goodbye!")
                 break
-            
+
             llm_response = self.llm.process(self.transcription_response)
 
-            tts = TextToSpeech()
             tts.speak(llm_response)
 
             # Reset transcription_response for the next loop iteration
             self.transcription_response = ""
+
 
 if __name__ == "__main__":
     manager = ConversationManager()
